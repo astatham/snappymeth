@@ -12,6 +12,11 @@ def main():
     import pandas
     from collections import OrderedDict
     from fisher import pvalue
+    import sys
+    import gzip
+    import csv
+    from IGV import IGV
+    os
 
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
 
@@ -27,43 +32,52 @@ def main():
         CpGs = [m.start() for m in re.finditer('CG', sequence)]
         return [x+pos-distance for x in CpGs]
 
-    def processSNP(chrom, pos, ref, alt, CpGs, min_coverage, min_region_CpGs, cutoff_mapq, cutoff_baseq):
-        # PASS 1 - find readnames of all reads with ref/alt alleles
-        alleles = list()
-        ref_readnames = set()
-        alt_readnames = set()
-        n_mapq = 0
-        n_baseq = 0
-        for pileup in samfile.pileup(chrom, pos-1, pos, max_depth=args.max_depth):
-            if pileup.reference_pos == pos-1:  # filter for position of interest
-                print "Processing %s reads covering SNP position %s:%s" % (
-                    len(pileup.pileups), chrom, pos)
-                for read in pileup.pileups:
-                    # read mapping quality filter
-                    if read.alignment.mapping_quality >= cutoff_mapq:
-                        n_mapq += 1
-                        SNP_base = read.alignment.query_sequence[read.query_position]
-                        SNP_qual = read.alignment.query_qualities[read.query_position]
-                        # base quality score filter @ SNP position
-                        if SNP_qual >= cutoff_baseq:
-                            n_baseq += 1
-                            alleles.append(SNP_base)
-                            if SNP_base == ref:
-                                ref_readnames.add(read.alignment.query_name)
-                            elif SNP_base == alt:
-                                alt_readnames.add(read.alignment.query_name)
-        print " - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq)
-        print " - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq)
-        print " - Found %s reads matching '%s' REF allele" % (len(ref_readnames), ref)
-        print " - Found %s reads matching '%s' ALT allele" % (len(alt_readnames), alt)
+    def type_of_read(read):
+        # Work out where the methylation information is in the CpG site, and whether to complement it
+        # Depends on read1/read2 and forward/reverse status
+        if read.is_read1 and not read.is_reverse:  # First, forward
+            offset = 0
+            to_complement = False
+        elif not read.is_read1 and read.is_reverse:  # Second, reverse
+            offset = 0
+            to_complement = False
+        elif read.is_read1 and read.is_reverse:  # First, reverse
+            offset = 1
+            to_complement = True
+        elif not read.is_read1 and not read.is_reverse:  # Second, forward
+            offset = 1
+            to_complement = True
+        return offset, to_complement
+    
+    def exportBAMs(chrom, pos, ref, alt, minpos, maxpos, ref_readnames, alt_readnames):
+        ref_filename = "%s.%s.%s.ref.%s.bam" % (args.prefix, chrom, pos, ref)
+        ref_bam = pysam.AlignmentFile(ref_filename, "wb", template=samfile)
+        alt_filename = "%s.%s.%s.alt.%s.bam" % (args.prefix, chrom, pos, alt)
+        alt_bam = pysam.AlignmentFile(alt_filename, "wb", template=samfile)
 
-        # Remove reads in both
-        ref_and_alt = ref_readnames.intersection(alt_readnames)
-        if len(ref_and_alt) > 0:
-            print " - %s reads discarded for being ambiguous" % len(ref_and_alt)
-            ref_readnames = ref_readnames.difference(ref_and_alt)
-            alt_readnames = alt_readnames.difference(ref_and_alt)
+        for read in samfile.fetch(chrom, minpos, maxpos):
+            if read.query_name in ref_readnames:
+                ref_bam.write(read)
+            elif read.query_name in alt_readnames:
+                alt_bam.write(read)
 
+        ref_bam.close()
+        alt_bam.close()
+        pysam.index(ref_filename)
+        pysam.index(alt_filename)
+
+        if args.IGV_screenshot:
+            png_filename = os.path.basename("%s.%s.%s.%s.%s.png" % (args.prefix, chrom, pos, ref, alt))
+            print " - Taking IGV screenshot to %s" % png_filename
+            igv.load("file://"+os.path.abspath(ref_filename))
+            igv.load("file://"+os.path.abspath(alt_filename))
+            igv.go("%s:%s-%s" % (chrom, pos-250, pos+250))
+            igv.send("collapse")
+            igv.save(png_filename)
+            igv.clear()
+
+    def processReadsAtPosition(chrom, pos, ref, alt, CpGs, ref_readnames, alt_readnames, min_coverage, 
+        min_region_CpGs):
         # PASS 2 - iterate through the CpG sites around the SNP, and count C/Ts in REF/ALT in reads
         CpGs_bases = pandas.DataFrame(OrderedDict([
             ('SNP.chr', chrom),
@@ -90,20 +104,7 @@ def main():
             else:
                 read_type = None
             if read_type is not None:
-                # Work out where the methylation information is in the CpG site, and whether to complement it
-                # Depends on read1/read2 and forward/reverse status
-                if read.is_read1 and not read.is_reverse:  # First, forward
-                    offset = 0
-                    to_complement = False
-                elif not read.is_read1 and read.is_reverse:  # Second, reverse
-                    offset = 0
-                    to_complement = False
-                elif read.is_read1 and read.is_reverse:  # First, reverse
-                    offset = 1
-                    to_complement = True
-                elif not read.is_read1 and not read.is_reverse:  # Second, forward
-                    offset = 1
-                    to_complement = True
+                offset, to_complement = type_of_read(read)
                 # Iterate through all aligned read positions, and store methylation calls
                 for pair in read.get_aligned_pairs():
                     if pair[0] is not None and pair[1] is not None:
@@ -152,33 +153,138 @@ def main():
             # Export row for this region
             out_regions.write(output)
 
+            # Export BAM per allele if feature is turned on and region meets fisher_cutoff
+            if args.region_bams and p_value <= args.fisher_cutoff:
+                print " - Regional fisher exact p_value: %s - exporting BAMs" % p_value
+                exportBAMs(chrom, pos, ref, alt, CpGs[0]-1, CpGs[len(CpGs)-1]+1,
+                    ref_readnames, alt_readnames)
+
+
+    def processCpG(chrom, pos, cutoff_mapq, cutoff_baseq):
+        """
+        Find readnames of all reads that are meth or unmeth at the specified CpG position
+        """
+        M_readnames = set()
+        U_readnames = set()
+        n_mapq = 0
+        n_baseq = 0
+        for pileup in samfile.pileup(chrom, pos, pos+1, max_depth=args.max_depth):
+            if pileup.reference_pos == pos:  # filter for position of interest
+                print "Processing %s reads covering CpG position %s:%s" % (
+                    len(pileup.pileups), chrom, pos)
+                for read in pileup.pileups:
+                    # read mapping quality filter
+                    if read.alignment.mapping_quality >= cutoff_mapq:
+                        n_mapq += 1
+                        offset, to_complement = type_of_read(read.alignment)
+                        if read.query_position + offset < len(read.alignment.query_sequence):
+                            CpG_base = read.alignment.query_sequence[read.query_position + offset]
+                            if to_complement:
+                                CpG_base = complement[CpG_base]
+                            CpG_qual = read.alignment.query_qualities[read.query_position + offset]
+                            # base quality score filter @ SNP position
+                            if CpG_qual >= cutoff_baseq:
+                                n_baseq += 1
+                                if CpG_base == "C":
+                                    M_readnames.add(read.alignment.query_name)
+                                elif CpG_base == "T":
+                                    U_readnames.add(read.alignment.query_name)
+        print " - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq)
+        print " - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq)
+        print " - Found %s reads with M allele" % len(M_readnames)
+        print " - Found %s reads with U allele" % len(U_readnames)
+
+        # Remove reads in both
+        M_and_U = M_readnames.intersection(U_readnames)
+        if len(M_and_U) > 0:
+            print " - %s reads discarded for being ambiguous" % len(M_and_U)
+            M_readnames = M_readnames.difference(M_and_U)
+            U_readnames = U_readnames.difference(M_and_U)
+        return M_readnames, U_readnames
+
+    def processSNP(chrom, pos, ref, alt, cutoff_mapq, cutoff_baseq):
+        """
+        Find readnames of all reads with REF and ALT alleles
+        """
+        ref_readnames = set()
+        alt_readnames = set()
+        n_mapq = 0
+        n_baseq = 0
+        for pileup in samfile.pileup(chrom, pos-1, pos, max_depth=args.max_depth):
+            if pileup.reference_pos == pos-1:  # filter for position of interest
+                print "Processing %s reads covering SNP position %s:%s" % (
+                    len(pileup.pileups), chrom, pos)
+                for read in pileup.pileups:
+                    # read mapping quality filter
+                    if read.alignment.mapping_quality >= cutoff_mapq:
+                        n_mapq += 1
+                        SNP_base = read.alignment.query_sequence[read.query_position]
+                        SNP_qual = read.alignment.query_qualities[read.query_position]
+                        # base quality score filter @ SNP position
+                        if SNP_qual >= cutoff_baseq:
+                            n_baseq += 1
+                            if SNP_base == ref:
+                                ref_readnames.add(read.alignment.query_name)
+                            elif SNP_base == alt:
+                                alt_readnames.add(read.alignment.query_name)
+        print " - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq)
+        print " - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq)
+        print " - Found %s reads matching '%s' REF allele" % (len(ref_readnames), ref)
+        print " - Found %s reads matching '%s' ALT allele" % (len(alt_readnames), alt)
+
+        # Remove reads in both
+        ref_and_alt = ref_readnames.intersection(alt_readnames)
+        if len(ref_and_alt) > 0:
+            print " - %s reads discarded for being ambiguous" % len(ref_and_alt)
+            ref_readnames = ref_readnames.difference(ref_and_alt)
+            alt_readnames = alt_readnames.difference(ref_and_alt)
+        return ref_readnames, alt_readnames
+
+    ## Entry point
     parser = argparse.ArgumentParser(description="snappymeth.py - "
-        "Parses a paired bam and vcf and looks for regions of allele-specific methylation.")
-    parser.add_argument("input_vcf", help="Input VCF file")
+        "Discover sites and regions of allele specific methylation from whole genome bisulfite "
+        "sequencing data by counting CpG methylation on alleles separately. Reads can be "
+        "separated by either a heterozygous SNP (when a VCF is supplied), or by the methylation "
+        "status of a single CpG site. Both analyses modes require sufficient sequencing coverage "
+        "of both alleles (default is 10x).")
+
+    parser.add_argument("input_file", help="Input VCF/CpG sites file, gzip compressed." )
     parser.add_argument("input_bam", help="Input BAM file")
     parser.add_argument("reference", help="Reference FASTA file")
-    parser.add_argument("prefix", help="Prefix for the sites and regions output csvs")
+    parser.add_argument("prefix", help="Prefix for all output files - the sites and regions output csvs, "
+        "regional BAMs and IGV screenshots")
+
+    parser.add_argument("--input_type", choices=("VCF", "CpGs"), default="VCF", help="Whether the "
+        "input_file is a VCF (default) or a csv of methylation counts at CpG sites with the format "
+        "'chr,position,M,U' where the fields are chromosome name, 0-based position of the CpG site, "
+        "count of methylated bases sequenced at this site and count of unmethylated bases sequenced.")
+    parser.add_argument("--VCF_sample", default="0", help="The sample in the VCF to be processed - "
+        "either as the sample name or numeric index (0-based). Default is 0, the first sample.")
     parser.add_argument("--pair_distance", type=int, default=500, help="The distance in "
-        "basepairs to search up and downstream from each SNP (default is 500)")
+        "basepairs to search up and downstream from each position (default is 500).")
     parser.add_argument("--max_depth", type=int, default=8000, help="Maximum number "
-        "of reads to process at each SNP position (default is 8000)")
+        "of reads to process at each position (default is 8000).")
     parser.add_argument("--min_per_allele", type=int, default=5, help="Minimum number "
-        "of reads containing each allele to process a SNP position")
+        "of reads containing each allele to process a position.")
     parser.add_argument("--min_sites_in_region", type=int, default=3, help="Minimum number "
-        "of CpG sites linked to a SNP to perform a regional analysis")
+        "of CpG sites linked to a SNP to perform a regional analysis.")
     parser.add_argument("--min_mapping_quality", type=int, default=40, help="Minimum mapping "
-        "quality score for a read to be considered")
+        "quality score for a read to be considered.")
     parser.add_argument("--min_base_quality", type=int, default=30, help="Minimum basecall "
-        "quality score at the SNP for a read to be considered")
+        "quality score at the SNP for a read to be considered.")
+    parser.add_argument("--region_bams", default=False, action='store_true', help="Specity to output "
+        "BAM files per allele when the regional fisher exact p-value is less than the cutoff "
+        "specified by --fisher_cutoff.")
+    parser.add_argument("--fisher_cutoff", type=float, default=0.0001, help="Regional fisher exact "
+        "p-value cutoff for a regional BAM to be created/IGV screenshot be taken (default is 0.0001).")
+    parser.add_argument("--IGV_screenshot", default=False, action='store_true', help="Specity to take "
+        "IGV screenshots of each region that passes --fisher_cutoff. Requires that IGV be running on "
+        "the local machine and listening on port 60151")
     args = parser.parse_args()
 
-    if args.max_depth < 8000:
-        print("Specified max_depth is too low - changing to 8000")
-        args.max_depth = 8000
-
     # Check input files exists, and thet output folder is writeable
-    if not os.path.isfile(args.input_vcf):
-        print("Input VCF file %s does not exist!" % args.input_vcf)
+    if not os.path.isfile(args.input_file):
+        print("Input file %s does not exist!" % args.input_file)
         return
 
     if not os.path.isfile(args.input_bam):
@@ -193,6 +299,14 @@ def main():
         print("Output %s is not writable!" % os.path.dirname(args.prefix))
         return
 
+    # Setup for IGV
+    if args.IGV_screenshot:
+        args.region_bams = True
+        igv = IGV()
+        igv.clear()
+        print "BAMs and IGV screenshots will be saved in %s" % os.path.dirname(os.path.abspath(args.prefix))
+        igv.set_path(os.path.dirname(os.path.abspath(args.prefix)))
+
     # Open the reference fasta file
     print "Loading %s" % args.reference
     fafile = Fasta(args.reference)
@@ -205,8 +319,6 @@ def main():
         pysam.index(args.input_bam)
         samfile = pysam.AlignmentFile(args.input_bam, "rb")
 
-    # Open the VCF file
-    vcffile = vcf.Reader(filename=args.input_vcf, compressed=True)
 
     # Open the output files and write headers
     out_sites = open(args.prefix + ".sites.csv", "w")
@@ -216,23 +328,59 @@ def main():
     out_regions.write("SNP.chr,SNP.pos,SNP.ref,SNP.alt,first.CpG,last.CpG,nCG,ref.C,ref.T,alt.C,alt.T,"
         "ref.cov,alt.cov,ref.meth,alt.meth,meth.diff,p.val\n")
 
-    # Iterate through the VCF
-    for record in vcffile:
-        call = record.samples[0]
-        if call.is_het:
-            n_ref = call['DP4'][0] + call['DP4'][1]
-            n_alt = call['DP4'][2] + call['DP4'][3]
-            if n_ref >= args.min_per_allele and n_alt >= args.min_per_allele:
-                CpGs = findCpGs(fafile, record.CHROM, record.POS, args.pair_distance)
-                if len(CpGs) > 0:
-                    processSNP(record.CHROM, record.POS, record.REF, record.ALT[0].sequence, CpGs,
-                        args.min_per_allele, args.min_sites_in_region, args.min_mapping_quality,
-                        args.min_base_quality)
+    if args.input_type=="VCF":  # VCF analysis
+        # Open the VCF file
+        vcffile = vcf.Reader(filename=args.input_file, compressed=True)
 
+        # Check VCF_sample validity
+        if args.VCF_sample.isdigit():  # If a number convert to int
+            args.VCF_sample = int(args.VCF_sample)
+        if isinstance(args.VCF_sample, basestring):
+            try:
+                sample_no = vcffile.samples.index(args.VCF_sample)
+            except ValueError:
+                sys.exit("Sample %s not found in VCF!" % args.VCF_sample)
+        elif not args.VCF_sample < len(vcffile.samples):
+                sys.exit("Sample number %s not found in VCF!" % args.VCF_sample)
+        else:
+            sample_no = args.VCF_sample
+
+        print "Processing sample no %s (%s) from VCF" % (sample_no, vcffile.samples[sample_no])
+
+        # Iterate through the VCF
+        for record in vcffile:
+            call = record.samples[sample_no]
+            if call.is_het:
+                n_ref = call['DP4'][0] + call['DP4'][1]
+                n_alt = call['DP4'][2] + call['DP4'][3]
+                if n_ref >= args.min_per_allele and n_alt >= args.min_per_allele:
+                    CpGs = findCpGs(fafile, record.CHROM, record.POS, args.pair_distance)
+                    if len(CpGs) > 0:  # If there are any CpG sites in the vicinity
+                        ref_reads, alt_reads = processSNP(record.CHROM, record.POS, record.REF,
+                            record.ALT[0].sequence, args.min_mapping_quality, args.min_base_quality)
+                        processReadsAtPosition(record.CHROM, record.POS, record.REF,
+                            record.ALT[0].sequence, CpGs, ref_reads, alt_reads, args.min_per_allele,
+                            args.min_sites_in_region)
+
+    else:  ## CpG sites analysis
+        with gzip.open(args.input_file, "r") as f:
+            CpGreader = csv.DictReader(f)
+            if CpGreader.fieldnames != ['chr', 'position', 'M', 'U']:
+                sys.exit("Field names in %s must be 'chr,position,M,U'" % args.input_file)
+            for CpG in CpGreader:
+                if int(CpG["M"]) >= args.min_per_allele and int(CpG["U"]) >= args.min_per_allele:
+                    CpGs = findCpGs(fafile, CpG["chr"], int(CpG["position"]), args.pair_distance)
+                    CpGs.remove(int(CpG["position"]))  # Remove the CpG site we are processing
+                    if len(CpGs) > 0:  # If there are any other CpG sites in the vicinity
+                        M_reads, U_reads = processCpG(CpG["chr"], int(CpG["position"]),
+                            args.min_mapping_quality, args.min_base_quality)
+                        processReadsAtPosition(CpG["chr"], int(CpG["position"]), "M", "U", CpGs,
+                            M_reads, U_reads, args.min_per_allele, args.min_sites_in_region)
+
+    # close files
     samfile.close()
     out_sites.close()
     out_regions.close()
-
 
 if __name__ == '__main__':
     main()
