@@ -101,10 +101,10 @@ Two comma separated value files:
 
 1. *prefix*.sites.csv - One line per CpG site linked to a heterozygous SNP (or intermediately methylated CpG site), containing the following fields:
 	* SNP.chr - SNP chromosome
-	* SNP.pos - SNP position
+	* SNP.pos - SNP position (0 based - wheres it is 1-based in a VCF)
 	* SNP.ref - reference allele
 	* SNP.alt - alternate allele
-	* CpG.pos - position of the CpG site linked to the SNP (via a read-pair)
+	* CpG.pos - position of the CpG site linked to the SNP (0 based)
 	* ref.A/C/G/T/N - count of A/C/G/T/N bases sequenced at the CpG methylation site in reference allele reads
 	* alt.A/C/G/T/N - count of A/C/G/T/N bases sequenced at the CpG methylation site in alternate allele reads
 	* ref.cov/alt.cov - sequencing coverage (only counting Cs and Ts) for reference and alternate alleles
@@ -121,7 +121,7 @@ If *--region_bams* is specified, then for each region which meets the *--fisher_
 Example usage of snappymeth.py
 ---
 
-A subset of a WGBS analysis of prostate epithelial cells (PrEC) for the [SNRPN imprinted locus](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2892089/) (hg19 chr15:25197573-25203941) is supplied in the wxample/ directory. The following command will use the genotyping data from BisSNP find 2 heterozygous SNPs in this region that separate the methylated and unmethylated alleles.
+A subset of a WGBS analysis of human prostate epithelial cells ([PrEC](http://www.lonza.com/products-services/bio-research/primary-cells/human-cells-and-media/prostate-cells-and-media/human-prostate-cells.aspx)) for the [SNRPN imprinted locus](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2892089/) (hg19 chr15:25197573-25203941) is supplied in the example/ directory. The following command will use the genotyping data from BisSNP find 2 heterozygous SNPs in this region that separate the methylated and unmethylated alleles.
 
     ../snappymeth.py --region_bams PrEC.SNRPN.vcf.gz PrEC.SNRPN.bam hg19.fa PrEC.SNRPN.VCF
 
@@ -131,7 +131,6 @@ Visualised using [IGV](https://www.broadinstitute.org/igv/)
 TODO
 ---
 
-* Perform IGV screenshots in a separate process
 * Link adjacent ASM regions from CpG sites analysis into methyl-haplotypes
 
 Acknowledgements

@@ -17,6 +17,7 @@ def main():
     import gzip
     import csv
     from IGV import IGV
+    from multiprocessing import Process, Queue
 
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
 
@@ -50,6 +51,23 @@ def main():
             to_complement = True
         return offset, to_complement
     
+    def IGV_reader(queue):
+        ## Read from the queue
+        while True:
+            msg = queue.get()         # Read from the queue and do nothing
+            if (msg == 'DONE'):
+                break
+            chrom, pos, ref, alt, ref_filename, alt_filename = msg.split(",")
+            pos = int(pos)
+            png_filename = os.path.basename("%s.%s.%s.%s.%s.png" % (args.prefix, chrom, pos, ref, alt))
+            igv.load("file://"+os.path.abspath(ref_filename))
+            igv.load("file://"+os.path.abspath(alt_filename))
+            igv.go("%s:%s-%s" % (chrom, pos-250, pos+250))
+            igv.send("collapse")
+            igv.send("region %s %s %s" % (chrom, pos+1, pos+2))  # 1 based co-ordinates for IGV
+            igv.save(png_filename)
+            igv.clear()
+
     def exportBAMs(chrom, pos, ref, alt, minpos, maxpos, ref_readnames, alt_readnames):
         ref_filename = "%s.%s.%s.ref.%s.bam" % (args.prefix, chrom, pos, ref)
         ref_bam = pysam.AlignmentFile(ref_filename, "wb", template=samfile)
@@ -68,15 +86,7 @@ def main():
         pysam.index(alt_filename)
 
         if args.IGV_screenshot:
-            png_filename = os.path.basename("%s.%s.%s.%s.%s.png" % (args.prefix, chrom, pos, ref, alt))
-            print(" - Taking IGV screenshot to %s" % png_filename)
-            igv.load("file://"+os.path.abspath(ref_filename))
-            igv.load("file://"+os.path.abspath(alt_filename))
-            igv.go("%s:%s-%s" % (chrom, pos-250, pos+250))
-            igv.send("collapse")
-            igv.send("region %s %s %s" % (chrom, pos, pos+1))
-            igv.save(png_filename)
-            igv.clear()
+            IGV_queue.put("%s,%s,%s,%s,%s,%s" % (chrom, pos, ref, alt, ref_filename, alt_filename))
 
     def processReadsAtPosition(chrom, pos, ref, alt, CpGs, ref_readnames, alt_readnames, min_coverage, 
         min_region_CpGs):
@@ -161,7 +171,6 @@ def main():
                 exportBAMs(chrom, pos, ref, alt, CpGs[0]-1, CpGs[len(CpGs)-1]+1,
                     ref_readnames, alt_readnames)
 
-
     def processCpG(chrom, pos, cutoff_mapq, cutoff_baseq):
         """
         Find readnames of all reads that are meth or unmeth at the specified CpG position
@@ -212,8 +221,8 @@ def main():
         alt_readnames = set()
         n_mapq = 0
         n_baseq = 0
-        for pileup in samfile.pileup(chrom, pos-1, pos, max_depth=args.max_depth):
-            if pileup.reference_pos == pos-1:  # filter for position of interest
+        for pileup in samfile.pileup(chrom, pos, pos+1, max_depth=args.max_depth):
+            if pileup.reference_pos == pos:  # filter for position of interest
                 print("Processing %s reads covering SNP position %s:%s" % (
                     len(pileup.pileups), chrom, pos))
                 for read in pileup.pileups:
@@ -308,6 +317,12 @@ def main():
         igv.clear()
         print("BAMs and IGV screenshots will be saved in %s" % os.path.dirname(os.path.abspath(args.prefix)))
         igv.set_path(os.path.dirname(os.path.abspath(args.prefix)))
+        # Setup queue for IGV screenshots in separate process
+        print("Starting separate process for IGV screenshots")
+        IGV_queue = Queue()
+        reader_process = Process(target=IGV_reader, args=((IGV_queue),))
+        reader_process.daemon = True
+        reader_process.start()        # Launch IGV_reader() as a separate python process
 
     # Open the reference fasta file
     print("Loading %s" % args.reference)
@@ -320,7 +335,6 @@ def main():
         samfile.close()
         pysam.index(args.input_bam)
         samfile = pysam.AlignmentFile(args.input_bam, "rb")
-
 
     # Open the output files and write headers
     out_sites = open(args.prefix + ".sites.csv", "w")
@@ -356,11 +370,16 @@ def main():
                 n_ref = call['DP4'][0] + call['DP4'][1]
                 n_alt = call['DP4'][2] + call['DP4'][3]
                 if n_ref >= args.min_per_allele and n_alt >= args.min_per_allele and (n_ref + n_alt) <= args.max_depth:
-                    CpGs = findCpGs(fafile, record.CHROM, record.POS, args.pair_distance)
+                    # record.POS-1 as VCFs are 1 based and everything is 0 based
+                    CpGs = findCpGs(fafile, record.CHROM, record.POS-1, args.pair_distance)
+                    # If SNP overlaps a CpG site, remove
+                    for site in range(record.POS-2, record.POS+1):
+                        if site in CpGs:
+                            CpGs.remove(site)
                     if len(CpGs) > 0:  # If there are any CpG sites in the vicinity
-                        ref_reads, alt_reads = processSNP(record.CHROM, record.POS, record.REF,
+                        ref_reads, alt_reads = processSNP(record.CHROM, record.POS-1, record.REF,
                             record.ALT[0].sequence, args.min_mapping_quality, args.min_base_quality)
-                        processReadsAtPosition(record.CHROM, record.POS, record.REF,
+                        processReadsAtPosition(record.CHROM, record.POS-1, record.REF,
                             record.ALT[0].sequence, CpGs, ref_reads, alt_reads, args.min_per_allele,
                             args.min_sites_in_region)
 
@@ -378,6 +397,12 @@ def main():
                             args.min_mapping_quality, args.min_base_quality)
                         processReadsAtPosition(CpG["chr"], int(CpG["position"]), "M", "U", CpGs,
                             M_reads, U_reads, args.min_per_allele, args.min_sites_in_region)
+
+    # Close down IGV process
+    if args.IGV_screenshot:
+        IGV_queue.put("DONE")
+        print("Waiting for IGV screenshots process to finish")
+        reader_process.join()
 
     # close files
     samfile.close()
