@@ -1,7 +1,7 @@
 snappymeth.py
 ---
 
-*snappymeth.py* was written to discover allele-specific methylation (ASM) of CpG sites and small regions from whole genome bisulfite data.
+*snappymeth.py* was written to discover allele-specific methylation (ASM) of CpG sites and small regions from whole genome bisulfite sequencing (WGBS) data.
 
 Two approaches have been implemented:
 
@@ -116,26 +116,23 @@ Two comma separated value files:
 
 If *--region_bams* is specified, then for each region which meets the *--fisher_cutoff* two (indexed) BAM files are created containing the reads for each allele. Additionally if *--IGV_screenshot* is specified, then these BAM files are loaded into a local running instance of IGV and a screenshot is saved.
 
-Some examples of using snappymeth.py
+Example usage of snappymeth.py
 ---
 
-The following command will search for ASM by separating reads that cover an intermediately methylated CpG site specified in the file *PrEC.CpGs.csv.gz* into methylated and unmethylated alleles. "Intermediate" methylation in this instance is a CpG site which has a minimum of 10 methylated reads and 10 unmethylated reads. For regions which show a significantly uneven distribution of methylation at CpG sites surrounding the intermediate site, BAM files and IGV screenshots are created in the *PrEC.CpGs* directory.
+A subset of a WGBS analysis of prostate epithelial cells (PrEC) for the [SNRPN imprinted locus](http://www.ncbi.nlm.nih.gov/pmc/articles/PMC2892089/) (hg19 chr15:25197573-25203941) is supplied in the wxample/ directory. The following command will use the genotyping data from BisSNP find 2 heterozygous SNPs in this region that separate the methylated and unmethylated alleles.
 
-    ./snappymeth.py --input_type CpGs --min_per_allele 10 --region_bams --IGV_screenshot PrEC.CpGs.csv.gz PrEC.clip.bam hg19.fa PrEC.CpGs/PrEC.CpGs
+    ../snappymeth.py --region_bams PrEC.SNRPN.vcf.gz PrEC.SNRPN.bam hg19.fa PrEC.SNRPN.VCF
 
-Screenshot of ASM found using snappymeth.py
----
-
-![Example of ASM](http://i.imgur.com/8loeIYk.png)
+![Example of ASM at the SNRPN imprinted region](http://i.imgur.com/Pg6CP5H.png)
 Visualised using [IGV](https://www.broadinstitute.org/igv/)
 
 TODO
 ---
 
-* Include some example data for testing
+* Add travis-ci to test using the example data
+* Perform IGV screenshots in a separate process
+* Link adjacent ASM regions from CpG sites analysis into methyl-haplotypes
 
 Acknowledgements
 ---
 * IGV.py included in the repository was copied from [Brent Pedersen's](https://github.com/brentp) [bio-playground github repository](https://github.com/brentp/bio-playground/blob/master/igv/igv.py). Cheers!
-
-

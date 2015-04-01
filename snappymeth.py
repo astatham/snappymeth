@@ -16,7 +16,6 @@ def main():
     import gzip
     import csv
     from IGV import IGV
-    os
 
     complement = {'A': 'T', 'C': 'G', 'G': 'C', 'T': 'A', 'N': 'N'}
 
@@ -28,9 +27,10 @@ def main():
             return False
 
     def findCpGs(fafile, chrom, pos, distance):
-        sequence = fafile[chrom][pos-distance:pos+distance]
-        CpGs = [m.start() for m in re.finditer('CG', sequence)]
-        return [x+pos-distance for x in CpGs]
+        minpos = 0 if pos<distance else pos-distance
+        sequence = fafile[chrom][minpos:pos+distance]
+        CpGs = [m.start() for m in re.finditer('CG', sequence, flags=re.IGNORECASE)]
+        return [x+minpos for x in CpGs]
 
     def type_of_read(read):
         # Work out where the methylation information is in the CpG site, and whether to complement it
@@ -73,6 +73,7 @@ def main():
             igv.load("file://"+os.path.abspath(alt_filename))
             igv.go("%s:%s-%s" % (chrom, pos-250, pos+250))
             igv.send("collapse")
+            igv.send("region %s %s %s" % (chrom, pos, pos+1))
             igv.save(png_filename)
             igv.clear()
 
@@ -262,8 +263,8 @@ def main():
         "either as the sample name or numeric index (0-based). Default is 0, the first sample.")
     parser.add_argument("--pair_distance", type=int, default=500, help="The distance in "
         "basepairs to search up and downstream from each position (default is 500).")
-    parser.add_argument("--max_depth", type=int, default=8000, help="Maximum number "
-        "of reads to process at each position (default is 8000).")
+    parser.add_argument("--max_depth", type=int, default=100, help="Maximum number "
+        "of reads allowed at a position to try and filter out repeat reads (default is 100)..")
     parser.add_argument("--min_per_allele", type=int, default=5, help="Minimum number "
         "of reads containing each allele to process a position.")
     parser.add_argument("--min_sites_in_region", type=int, default=3, help="Minimum number "
@@ -296,7 +297,7 @@ def main():
         return
 
     if not can_create_file(os.path.dirname(args.prefix)):
-        print("Output %s is not writable!" % os.path.dirname(args.prefix))
+        print("Output directory %s/ is not writable!" % os.path.dirname(args.prefix))
         return
 
     # Setup for IGV
@@ -353,7 +354,7 @@ def main():
             if call.is_het:
                 n_ref = call['DP4'][0] + call['DP4'][1]
                 n_alt = call['DP4'][2] + call['DP4'][3]
-                if n_ref >= args.min_per_allele and n_alt >= args.min_per_allele:
+                if n_ref >= args.min_per_allele and n_alt >= args.min_per_allele and (n_ref + n_alt) <= args.max_depth:
                     CpGs = findCpGs(fafile, record.CHROM, record.POS, args.pair_distance)
                     if len(CpGs) > 0:  # If there are any CpG sites in the vicinity
                         ref_reads, alt_reads = processSNP(record.CHROM, record.POS, record.REF,
@@ -368,7 +369,7 @@ def main():
             if CpGreader.fieldnames != ['chr', 'position', 'M', 'U']:
                 sys.exit("Field names in %s must be 'chr,position,M,U'" % args.input_file)
             for CpG in CpGreader:
-                if int(CpG["M"]) >= args.min_per_allele and int(CpG["U"]) >= args.min_per_allele:
+                if int(CpG["M"]) >= args.min_per_allele and int(CpG["U"]) >= args.min_per_allele and (int(CpG["M"]) + int(CpG["U"])) <= args.max_depth:
                     CpGs = findCpGs(fafile, CpG["chr"], int(CpG["position"]), args.pair_distance)
                     CpGs.remove(int(CpG["position"]))  # Remove the CpG site we are processing
                     if len(CpGs) > 0:  # If there are any other CpG sites in the vicinity
