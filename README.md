@@ -1,7 +1,7 @@
 snappymeth.py
 ---
 
-[![Build Status](https://travis-ci.org/astatham/snappymeth.svg?branch=master)](https://travis-ci.org/astatham/snappymeth)
+[![Build Status](https://travis-ci.org/astatham/snappymeth.svg?branch=master)](https://travis-ci.org/astatham/snappymeth) (only tested on python 2.7)
 
 *snappymeth.py* was written to discover allele-specific methylation (ASM) of CpG sites and small regions from whole genome bisulfite sequencing (WGBS) data.
 
