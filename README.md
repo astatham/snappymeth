@@ -131,7 +131,6 @@ Visualised using [IGV](https://www.broadinstitute.org/igv/)
 TODO
 ---
 
-* Add travis-ci to test using the example data
 * Perform IGV screenshots in a separate process
 * Link adjacent ASM regions from CpG sites analysis into methyl-haplotypes
 

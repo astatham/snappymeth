@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 from __future__ import division
+from __future__ import print_function
 
 def main():
     import argparse
@@ -68,7 +69,7 @@ def main():
 
         if args.IGV_screenshot:
             png_filename = os.path.basename("%s.%s.%s.%s.%s.png" % (args.prefix, chrom, pos, ref, alt))
-            print " - Taking IGV screenshot to %s" % png_filename
+            print(" - Taking IGV screenshot to %s" % png_filename)
             igv.load("file://"+os.path.abspath(ref_filename))
             igv.load("file://"+os.path.abspath(alt_filename))
             igv.go("%s:%s-%s" % (chrom, pos-250, pos+250))
@@ -156,7 +157,7 @@ def main():
 
             # Export BAM per allele if feature is turned on and region meets fisher_cutoff
             if args.region_bams and p_value <= args.fisher_cutoff:
-                print " - Regional fisher exact p_value: %s - exporting BAMs" % p_value
+                print(" - Regional fisher exact p_value: %s - exporting BAMs" % p_value)
                 exportBAMs(chrom, pos, ref, alt, CpGs[0]-1, CpGs[len(CpGs)-1]+1,
                     ref_readnames, alt_readnames)
 
@@ -171,8 +172,8 @@ def main():
         n_baseq = 0
         for pileup in samfile.pileup(chrom, pos, pos+1, max_depth=args.max_depth):
             if pileup.reference_pos == pos:  # filter for position of interest
-                print "Processing %s reads covering CpG position %s:%s" % (
-                    len(pileup.pileups), chrom, pos)
+                print("Processing %s reads covering CpG position %s:%s" % (
+                    len(pileup.pileups), chrom, pos))
                 for read in pileup.pileups:
                     # read mapping quality filter
                     if read.alignment.mapping_quality >= cutoff_mapq:
@@ -190,15 +191,15 @@ def main():
                                     M_readnames.add(read.alignment.query_name)
                                 elif CpG_base == "T":
                                     U_readnames.add(read.alignment.query_name)
-        print " - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq)
-        print " - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq)
-        print " - Found %s reads with M allele" % len(M_readnames)
-        print " - Found %s reads with U allele" % len(U_readnames)
+        print(" - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq))
+        print(" - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq))
+        print(" - Found %s reads with M allele" % len(M_readnames))
+        print(" - Found %s reads with U allele" % len(U_readnames))
 
         # Remove reads in both
         M_and_U = M_readnames.intersection(U_readnames)
         if len(M_and_U) > 0:
-            print " - %s reads discarded for being ambiguous" % len(M_and_U)
+            print(" - %s reads discarded for being ambiguous" % len(M_and_U))
             M_readnames = M_readnames.difference(M_and_U)
             U_readnames = U_readnames.difference(M_and_U)
         return M_readnames, U_readnames
@@ -213,8 +214,8 @@ def main():
         n_baseq = 0
         for pileup in samfile.pileup(chrom, pos-1, pos, max_depth=args.max_depth):
             if pileup.reference_pos == pos-1:  # filter for position of interest
-                print "Processing %s reads covering SNP position %s:%s" % (
-                    len(pileup.pileups), chrom, pos)
+                print("Processing %s reads covering SNP position %s:%s" % (
+                    len(pileup.pileups), chrom, pos))
                 for read in pileup.pileups:
                     # read mapping quality filter
                     if read.alignment.mapping_quality >= cutoff_mapq:
@@ -228,15 +229,15 @@ def main():
                                 ref_readnames.add(read.alignment.query_name)
                             elif SNP_base == alt:
                                 alt_readnames.add(read.alignment.query_name)
-        print " - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq)
-        print " - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq)
-        print " - Found %s reads matching '%s' REF allele" % (len(ref_readnames), ref)
-        print " - Found %s reads matching '%s' ALT allele" % (len(alt_readnames), alt)
+        print(" - Found %s reads passing mapping quality filter of %s" % (n_mapq, cutoff_mapq))
+        print(" - Found %s reads passing base quality filter of %s" % (n_baseq, cutoff_baseq))
+        print(" - Found %s reads matching '%s' REF allele" % (len(ref_readnames), ref))
+        print(" - Found %s reads matching '%s' ALT allele" % (len(alt_readnames), alt))
 
         # Remove reads in both
         ref_and_alt = ref_readnames.intersection(alt_readnames)
         if len(ref_and_alt) > 0:
-            print " - %s reads discarded for being ambiguous" % len(ref_and_alt)
+            print(" - %s reads discarded for being ambiguous" % len(ref_and_alt))
             ref_readnames = ref_readnames.difference(ref_and_alt)
             alt_readnames = alt_readnames.difference(ref_and_alt)
         return ref_readnames, alt_readnames
@@ -305,11 +306,11 @@ def main():
         args.region_bams = True
         igv = IGV()
         igv.clear()
-        print "BAMs and IGV screenshots will be saved in %s" % os.path.dirname(os.path.abspath(args.prefix))
+        print("BAMs and IGV screenshots will be saved in %s" % os.path.dirname(os.path.abspath(args.prefix)))
         igv.set_path(os.path.dirname(os.path.abspath(args.prefix)))
 
     # Open the reference fasta file
-    print "Loading %s" % args.reference
+    print("Loading %s" % args.reference)
     fafile = Fasta(args.reference)
 
     # Index samfile if one does not already exist
@@ -346,7 +347,7 @@ def main():
         else:
             sample_no = args.VCF_sample
 
-        print "Processing sample no %s (%s) from VCF" % (sample_no, vcffile.samples[sample_no])
+        print("Processing sample no %s (%s) from VCF" % (sample_no, vcffile.samples[sample_no]))
 
         # Iterate through the VCF
         for record in vcffile:
