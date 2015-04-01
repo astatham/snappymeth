@@ -1,6 +1,8 @@
 snappymeth.py
 ---
 
+[![Build Status](https://travis-ci.org/astatham/snappymeth.svg?branch=master)](https://travis-ci.org/astatham/snappymeth)
+
 *snappymeth.py* was written to discover allele-specific methylation (ASM) of CpG sites and small regions from whole genome bisulfite sequencing (WGBS) data.
 
 Two approaches have been implemented:
@@ -25,7 +27,7 @@ Input data is:
 Requirements
 ---
 
-    pip install pysam pyvcf pyfasta fisher
+    pip install pysam pyvcf pyfasta fisher pandas
 
 Usage
 ---
@@ -136,3 +138,4 @@ TODO
 Acknowledgements
 ---
 * IGV.py included in the repository was copied from [Brent Pedersen's](https://github.com/brentp) [bio-playground github repository](https://github.com/brentp/bio-playground/blob/master/igv/igv.py). Cheers!
+

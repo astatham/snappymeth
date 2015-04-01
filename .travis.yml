@@ -7,6 +7,6 @@ python:
   - "3.4"
   - "nightly"
 # command to install dependencies
-install: "pip install pysam pyvcf pyfasta fisher"
+install: "pip install pysam pyvcf pyfasta fisher pandas"
 # command to run tests
 script: cd example && ./run_test.sh
