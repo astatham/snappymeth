@@ -391,7 +391,10 @@ def main():
             for CpG in CpGreader:
                 if int(CpG["M"]) >= args.min_per_allele and int(CpG["U"]) >= args.min_per_allele and (int(CpG["M"]) + int(CpG["U"])) <= args.max_depth:
                     CpGs = findCpGs(fafile, CpG["chr"], int(CpG["position"]), args.pair_distance)
-                    CpGs.remove(int(CpG["position"]))  # Remove the CpG site we are processing
+                    try:
+                        CpGs.remove(int(CpG["position"]))  # Remove the CpG site we are processing
+                    except ValueError:
+                        sys.exit("Input file CpG site at '%s:%s' is a '%s' in reference. Are you sure your input file coordinates are 0-based?" % (CpG["chr"], CpG["position"], fafile[CpG["chr"]][int(CpG["position"]):int(CpG["position"])+2]))
                     if len(CpGs) > 0:  # If there are any other CpG sites in the vicinity
                         M_reads, U_reads = processCpG(CpG["chr"], int(CpG["position"]),
                             args.min_mapping_quality, args.min_base_quality)
