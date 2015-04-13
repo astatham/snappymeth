@@ -179,7 +179,7 @@ def main():
         U_readnames = set()
         n_mapq = 0
         n_baseq = 0
-        for pileup in samfile.pileup(chrom, pos, pos+1, max_depth=args.max_depth):
+        for pileup in samfile.pileup(chrom, pos, pos+1):
             if pileup.reference_pos == pos:  # filter for position of interest
                 print("Processing %s reads covering CpG position %s:%s" % (
                     len(pileup.pileups), chrom, pos))
@@ -221,7 +221,7 @@ def main():
         alt_readnames = set()
         n_mapq = 0
         n_baseq = 0
-        for pileup in samfile.pileup(chrom, pos, pos+1, max_depth=args.max_depth):
+        for pileup in samfile.pileup(chrom, pos, pos+1):
             if pileup.reference_pos == pos:  # filter for position of interest
                 print("Processing %s reads covering SNP position %s:%s" % (
                     len(pileup.pileups), chrom, pos))
@@ -379,9 +379,10 @@ def main():
                     if len(CpGs) > 0:  # If there are any CpG sites in the vicinity
                         ref_reads, alt_reads = processSNP(record.CHROM, record.POS-1, record.REF,
                             record.ALT[0].sequence, args.min_mapping_quality, args.min_base_quality)
-                        processReadsAtPosition(record.CHROM, record.POS-1, record.REF,
-                            record.ALT[0].sequence, CpGs, ref_reads, alt_reads, args.min_per_allele,
-                            args.min_sites_in_region)
+                        if len(ref_reads) + len(alt_reads) <= args.max_depth:
+                            processReadsAtPosition(record.CHROM, record.POS-1, record.REF,
+                                record.ALT[0].sequence, CpGs, ref_reads, alt_reads, args.min_per_allele,
+                                args.min_sites_in_region)
 
     else:  ## CpG sites analysis
         with gzip.open(args.input_file, "r") as f:
@@ -398,8 +399,9 @@ def main():
                     if len(CpGs) > 0:  # If there are any other CpG sites in the vicinity
                         M_reads, U_reads = processCpG(CpG["chr"], int(CpG["position"]),
                             args.min_mapping_quality, args.min_base_quality)
-                        processReadsAtPosition(CpG["chr"], int(CpG["position"]), "M", "U", CpGs,
-                            M_reads, U_reads, args.min_per_allele, args.min_sites_in_region)
+                        if len(M_reads) + len(U_reads) <= args.max_depth:
+                            processReadsAtPosition(CpG["chr"], int(CpG["position"]), "M", "U", CpGs,
+                                M_reads, U_reads, args.min_per_allele, args.min_sites_in_region)
 
     # Close down IGV process
     if args.IGV_screenshot:
